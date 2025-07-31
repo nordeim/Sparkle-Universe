@@ -1,0 +1,1023 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch", "postgresqlExtensions", "multiSchema", "views"]
+  binaryTargets   = ["native", "linux-musl", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [pgcrypto, pg_trgm, vector, postgis]
+}
+
+// =====================
+// ENUMS
+// =====================
+
+enum UserRole {
+  USER
+  MODERATOR
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum PostStatus {
+  DRAFT
+  PUBLISHED
+  SCHEDULED
+  ARCHIVED
+  REMOVED
+}
+
+enum ReactionType {
+  LIKE
+  LOVE
+  LAUGH
+  WOW
+  SAD
+  ANGRY
+}
+
+enum NotificationType {
+  POST_LIKE
+  POST_COMMENT
+  FOLLOW
+  MENTION
+  ACHIEVEMENT
+  SYSTEM
+  AI_MESSAGE
+  NFT_SALE
+}
+
+enum ContentType {
+  POST
+  ARTWORK
+  ACHIEVEMENT
+  COLLECTIBLE
+}
+
+enum ModerationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  FLAGGED
+  REMOVED
+}
+
+enum TransactionStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+  CANCELLED
+}
+
+enum AchievementCategory {
+  POSTING
+  SOCIAL
+  EXPLORATION
+  SPECIAL
+  SEASONAL
+}
+
+enum AchievementRarity {
+  COMMON
+  UNCOMMON
+  RARE
+  EPIC
+  LEGENDARY
+}
+
+// =====================
+// USER DOMAIN
+// =====================
+
+model User {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email             String    @unique @db.VarChar(255)
+  username          String    @unique @db.VarChar(30)
+  hashedPassword    String?   @db.Text
+  emailVerified     DateTime?
+  role              UserRole  @default(USER)
+  totalPoints       Int       @default(0)
+  isActive          Boolean   @default(true)
+  isBanned          Boolean   @default(false)
+  bannedUntil       DateTime?
+  lastLoginAt       DateTime?
+  lastLoginIp       String?   @db.Inet
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+
+  // Relations
+  profile              Profile?
+  sessions             Session[]
+  oauthAccounts        OAuthAccount[]
+  twoFactorAuth        TwoFactorAuth?
+  aiCompanion          AICompanion?
+  posts                Post[]
+  comments             Comment[]
+  reactions            Reaction[]
+  following            Follow[]           @relation("UserFollowing")
+  followers            Follow[]           @relation("UserFollowers")
+  sentNotifications    Notification[]     @relation("NotificationSender")
+  receivedNotifications Notification[]    @relation("NotificationRecipient")
+  wallet               Wallet?
+  nfts                 NFT[]
+  transactions         Transaction[]
+  reputation           Reputation?
+  reputationHistory    ReputationHistory[]
+  achievements         UserAchievement[]
+  createdSpaces        VirtualSpace[]
+  visitedSpaces        SpaceVisit[]
+  reports              Report[]           @relation("Reporter")
+  moderationActions    ModerationAction[]
+  auditLogs            AuditLog[]
+
+  // Indexes
+  @@index([email])
+  @@index([username])
+  @@index([role])
+  @@index([createdAt])
+  @@index([isActive, isBanned])
+  @@map("users")
+}
+
+model Profile {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String   @unique @db.Uuid
+  displayName     String   @db.VarChar(100)
+  bio             String?  @db.Text
+  avatarUrl       String?  @db.Text
+  bannerUrl       String?  @db.Text
+  location        String?  @db.VarChar(100)
+  website         String?  @db.Text
+  pronouns        String?  @db.VarChar(50)
+  timezone        String   @default("UTC") @db.VarChar(50)
+  socialLinks     Json?    @db.JsonB
+  theme           String   @default("system") @db.VarChar(20)
+  accentColor     String   @default("#6366f1") @db.VarChar(7)
+  isPublic        Boolean  @default(true)
+  showEmail       Boolean  @default(false)
+  emailNotifications Boolean @default(true)
+  pushNotifications  Boolean @default(true)
+  marketingEmails    Boolean @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([userId])
+  @@map("profiles")
+}
+
+model Session {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @db.Uuid
+  token       String   @unique @db.Text
+  refreshToken String?  @unique @db.Text
+  expiresAt   DateTime
+  ipAddress   String?  @db.Inet
+  userAgent   String?  @db.Text
+  location    String?  @db.Text
+  deviceInfo  Json?    @db.JsonB
+  createdAt   DateTime @default(now())
+  lastUsedAt  DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([userId])
+  @@index([token])
+  @@index([refreshToken])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model OAuthAccount {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String    @db.Uuid
+  provider          String    @db.VarChar(50)
+  providerAccountId String    @db.VarChar(255)
+  accessToken       String?   @db.Text
+  refreshToken      String?   @db.Text
+  expiresAt         DateTime?
+  tokenType         String?   @db.VarChar(50)
+  scope             String?   @db.Text
+  idToken           String?   @db.Text
+  sessionState      String?   @db.Text
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Constraints
+  @@unique([provider, providerAccountId])
+  // Indexes
+  @@index([userId])
+  @@map("oauth_accounts")
+}
+
+model TwoFactorAuth {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String   @unique @db.Uuid
+  secret          String   @db.Text
+  backupCodes     String[] @db.Text
+  isEnabled       Boolean  @default(false)
+  lastUsedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("two_factor_auth")
+}
+
+// =====================
+// AI COMPANION DOMAIN
+// =====================
+
+model AICompanion {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String   @unique @db.Uuid
+  name             String   @db.VarChar(50)
+  personality      Json     @db.JsonB
+  avatarConfig     Json     @db.JsonB
+  voiceId          String   @db.VarChar(100)
+  language         String   @default("en") @db.VarChar(10)
+  interactions     Int      @default(0)
+  lastInteraction  DateTime?
+  learningState    Json?    @db.JsonB
+  customTraits     Json?    @db.JsonB
+  restrictions     Json?    @db.JsonB
+  emotionalState   Json?    @db.JsonB
+  relationshipLevel Int     @default(0)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  memories CompanionMemory[]
+  conversations Conversation[]
+
+  // Indexes
+  @@index([userId])
+  @@index([isActive])
+  @@map("ai_companions")
+}
+
+model CompanionMemory {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companionId    String    @db.Uuid
+  content        String    @db.Text
+  embedding      Unsupported("vector(1536)")
+  metadata       Json      @db.JsonB
+  importance     Float     @default(1.0)
+  emotionalTone  Float?    // -1 to 1
+  category       String?   @db.VarChar(50)
+  accessCount    Int       @default(0)
+  lastAccessed   DateTime?
+  expiresAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  // Relations
+  companion AICompanion @relation(fields: [companionId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([companionId])
+  @@index([createdAt])
+  @@index([importance])
+  @@index([category])
+  @@map("companion_memories")
+}
+
+model Conversation {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companionId   String   @db.Uuid
+  messages      Json     @db.JsonB
+  summary       String?  @db.Text
+  sentiment     Float?   // Average sentiment
+  topicTags     String[] @db.Text
+  startedAt     DateTime @default(now())
+  endedAt       DateTime?
+  messageCount  Int      @default(0)
+
+  // Relations
+  companion AICompanion @relation(fields: [companionId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([companionId])
+  @@index([startedAt])
+  @@map("conversations")
+}
+
+// =====================
+// CONTENT DOMAIN
+// =====================
+
+model Category {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @unique @db.VarChar(50)
+  slug        String   @unique @db.VarChar(50)
+  description String?  @db.Text
+  parentId    String?  @db.Uuid
+  icon        String?  @db.VarChar(50)
+  color       String?  @db.VarChar(7)
+  order       Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  parent   Category? @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryHierarchy")
+  posts    Post[]
+
+  // Indexes
+  @@index([slug])
+  @@index([parentId])
+  @@index([isActive])
+  @@map("categories")
+}
+
+model Tag {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name       String   @unique @db.VarChar(30)
+  slug       String   @unique @db.VarChar(30)
+  usageCount Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  // Relations
+  posts PostTag[]
+
+  // Indexes
+  @@index([name])
+  @@index([usageCount(sort: Desc)])
+  @@map("tags")
+}
+
+model Post {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  authorId        String    @db.Uuid
+  title           String    @db.VarChar(300)
+  slug            String    @unique @db.VarChar(350)
+  content         Json      @db.JsonB
+  contentText     String?   @db.Text // Plain text for search
+  excerpt         String?   @db.Text
+  coverImage      String?   @db.Text
+  categoryId      String?   @db.Uuid
+  status          PostStatus @default(DRAFT)
+  moderationStatus ModerationStatus @default(PENDING)
+  publishedAt     DateTime?
+  scheduledAt     DateTime?
+  featuredAt      DateTime?
+  pinnedAt        DateTime?
+  viewCount       Int       @default(0)
+  shareCount      Int       @default(0)
+  saveCount       Int       @default(0)
+  readingTime     Int?      // in minutes
+  sentiment       Float?    // -1 to 1
+  aiSuggestions   Json?     @db.JsonB
+  seoMetadata     Json?     @db.JsonB
+  nftTokenId      String?   @unique
+  isCommentable   Boolean   @default(true)
+  isShareable     Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  // Relations
+  author       User          @relation(fields: [authorId], references: [id])
+  category     Category?     @relation(fields: [categoryId], references: [id])
+  tags         PostTag[]
+  comments     Comment[]
+  reactions    Reaction[]
+  versions     PostVersion[]
+  nft          NFT?          @relation(fields: [nftTokenId], references: [tokenId])
+  reports      Report[]
+
+  // Indexes
+  @@index([authorId])
+  @@index([slug])
+  @@index([status, publishedAt])
+  @@index([categoryId])
+  @@index([createdAt])
+  @@index([viewCount(sort: Desc)])
+  @@index([featuredAt])
+  @@index([moderationStatus])
+  @@map("posts")
+}
+
+model PostTag {
+  postId String @db.Uuid
+  tagId  String @db.Uuid
+
+  // Relations
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  // Constraints
+  @@id([postId, tagId])
+  // Indexes
+  @@index([postId])
+  @@index([tagId])
+  @@map("post_tags")
+}
+
+model PostVersion {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  postId    String   @db.Uuid
+  title     String   @db.VarChar(300)
+  content   Json     @db.JsonB
+  excerpt   String?  @db.Text
+  version   Int
+  createdBy String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  // Relations
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([postId, version])
+  @@map("post_versions")
+}
+
+model Comment {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  postId      String    @db.Uuid
+  authorId    String    @db.Uuid
+  parentId    String?   @db.Uuid
+  content     String    @db.Text
+  isEdited    Boolean   @default(false)
+  editedAt    DateTime?
+  isPinned    Boolean   @default(false)
+  likeCount   Int       @default(0)
+  replyCount  Int       @default(0)
+  createdAt   DateTime  @default(now())
+  deletedAt   DateTime?
+
+  // Relations
+  post      Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author    User       @relation(fields: [authorId], references: [id])
+  parent    Comment?   @relation("CommentReplies", fields: [parentId], references: [id])
+  replies   Comment[]  @relation("CommentReplies")
+  reactions Reaction[]
+  reports   Report[]
+
+  // Indexes
+  @@index([postId])
+  @@index([authorId])
+  @@index([parentId])
+  @@index([createdAt])
+  @@map("comments")
+}
+
+model Reaction {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String       @db.Uuid
+  postId       String?      @db.Uuid
+  commentId    String?      @db.Uuid
+  reactionType ReactionType
+  createdAt    DateTime     @default(now())
+
+  // Relations
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post    Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  // Constraints
+  @@unique([userId, postId, reactionType])
+  @@unique([userId, commentId, reactionType])
+  // Indexes
+  @@index([userId])
+  @@index([postId])
+  @@index([commentId])
+  @@map("reactions")
+}
+
+// =====================
+// SOCIAL DOMAIN
+// =====================
+
+model Follow {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  followerId  String   @db.Uuid
+  followingId String   @db.Uuid
+  createdAt   DateTime @default(now())
+
+  // Relations
+  follower  User @relation("UserFollowing", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("UserFollowers", fields: [followingId], references: [id], onDelete: Cascade)
+
+  // Constraints
+  @@unique([followerId, followingId])
+  // Indexes
+  @@index([followerId])
+  @@index([followingId])
+  @@map("follows")
+}
+
+model Notification {
+  id         String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String           @db.Uuid
+  senderId   String?          @db.Uuid
+  type       NotificationType
+  title      String           @db.VarChar(200)
+  content    String?          @db.Text
+  data       Json?            @db.JsonB
+  imageUrl   String?          @db.Text
+  actionUrl  String?          @db.Text
+  isRead     Boolean          @default(false)
+  readAt     DateTime?
+  createdAt  DateTime         @default(now())
+  expiresAt  DateTime?
+
+  // Relations
+  user   User  @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  sender User? @relation("NotificationSender", fields: [senderId], references: [id], onDelete: SetNull)
+
+  // Indexes
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+  @@index([type])
+  @@map("notifications")
+}
+
+// =====================
+// BLOCKCHAIN DOMAIN
+// =====================
+
+model Wallet {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String   @unique @db.Uuid
+  address         String   @unique @db.VarChar(42)
+  chainId         Int
+  sparkBalance    Decimal  @default(0) @db.Decimal(36, 18)
+  ethBalance      Decimal  @default(0) @db.Decimal(36, 18)
+  usdBalance      Decimal  @default(0) @db.Decimal(10, 2)
+  encryptedKey    String?  @db.Text // For custodial wallets
+  isExternal      Boolean  @default(true)
+  isPrimary       Boolean  @default(true)
+  label           String?  @db.VarChar(50)
+  lastActivity    DateTime?
+  totalGasSpent   Decimal  @default(0) @db.Decimal(36, 18)
+  nonce           Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+  nftsOwned    NFT[]         @relation("NFTOwner")
+
+  // Indexes
+  @@index([address])
+  @@index([userId])
+  @@map("wallets")
+}
+
+model NFT {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tokenId         String    @unique @db.VarChar(100)
+  contractAddress String    @db.VarChar(42)
+  ownerAddress    String    @db.VarChar(42)
+  creatorId       String    @db.Uuid
+  name            String    @db.VarChar(200)
+  description     String?   @db.Text
+  imageUrl        String    @db.Text
+  animationUrl    String?   @db.Text
+  externalUrl     String?   @db.Text
+  attributes      Json      @db.JsonB
+  contentType     ContentType
+  postId          String?   @unique @db.Uuid
+  royaltyPercent  Int       @default(250) // 2.5%
+  isListed        Boolean   @default(false)
+  listPrice       Decimal?  @db.Decimal(36, 18)
+  lastSalePrice   Decimal?  @db.Decimal(36, 18)
+  viewCount       Int       @default(0)
+  likeCount       Int       @default(0)
+  mintedAt        DateTime
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  creator      User          @relation(fields: [creatorId], references: [id])
+  currentOwner Wallet        @relation("NFTOwner", fields: [ownerAddress], references: [address])
+  post         Post?
+  listings     NFTListing[]
+  transfers    NFTTransfer[]
+  offers       NFTOffer[]
+
+  // Indexes
+  @@index([tokenId])
+  @@index([ownerAddress])
+  @@index([creatorId])
+  @@index([isListed])
+  @@map("nfts")
+}
+
+model NFTListing {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nftId       String   @db.Uuid
+  sellerId    String   @db.Uuid
+  price       Decimal  @db.Decimal(36, 18)
+  currency    String   @default("SPARK") @db.VarChar(10)
+  expiresAt   DateTime?
+  isActive    Boolean  @default(true)
+  viewCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  soldAt      DateTime?
+
+  // Relations
+  nft NFT @relation(fields: [nftId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([nftId, isActive])
+  @@index([sellerId])
+  @@index([price])
+  @@map("nft_listings")
+}
+
+model NFTTransfer {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nftId           String   @db.Uuid
+  fromAddress     String   @db.VarChar(42)
+  toAddress       String   @db.VarChar(42)
+  transactionHash String   @db.VarChar(66)
+  price           Decimal? @db.Decimal(36, 18)
+  transferType    String   @db.VarChar(20) // mint, sale, transfer, burn
+  createdAt       DateTime @default(now())
+
+  // Relations
+  nft NFT @relation(fields: [nftId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([nftId])
+  @@index([transactionHash])
+  @@map("nft_transfers")
+}
+
+model NFTOffer {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nftId       String    @db.Uuid
+  buyerId     String    @db.Uuid
+  price       Decimal   @db.Decimal(36, 18)
+  currency    String    @default("SPARK") @db.VarChar(10)
+  message     String?   @db.Text
+  expiresAt   DateTime
+  status      String    @default("PENDING") @db.VarChar(20) // PENDING, ACCEPTED, REJECTED, EXPIRED
+  createdAt   DateTime  @default(now())
+  respondedAt DateTime?
+
+  // Relations
+  nft NFT @relation(fields: [nftId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([nftId, status])
+  @@index([buyerId])
+  @@map("nft_offers")
+}
+
+model Transaction {
+  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String            @db.Uuid
+  walletId        String            @db.Uuid
+  transactionHash String            @unique @db.VarChar(66)
+  type            String            @db.VarChar(50)
+  status          TransactionStatus
+  fromAddress     String            @db.VarChar(42)
+  toAddress       String            @db.VarChar(42)
+  value           Decimal           @db.Decimal(36, 18)
+  gasUsed         Decimal?          @db.Decimal(36, 18)
+  gasPrice        Decimal?          @db.Decimal(36, 18)
+  blockNumber     BigInt?
+  nonce           Int?
+  data            String?           @db.Text
+  error           String?           @db.Text
+  metadata        Json?             @db.JsonB
+  createdAt       DateTime          @default(now())
+  confirmedAt     DateTime?
+
+  // Relations
+  user   User   @relation(fields: [userId], references: [id])
+  wallet Wallet @relation(fields: [walletId], references: [id])
+
+  // Indexes
+  @@index([userId])
+  @@index([walletId])
+  @@index([transactionHash])
+  @@index([status])
+  @@index([createdAt])
+  @@map("transactions")
+}
+
+// =====================
+// GAMIFICATION DOMAIN
+// =====================
+
+model Reputation {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String   @unique @db.Uuid
+  points        Int      @default(0)
+  level         Int      @default(1)
+  title         String?  @db.VarChar(50)
+  badges        Json     @default("[]") @db.JsonB
+  streakDays    Int      @default(0)
+  lastActivity  DateTime @default(now())
+  monthlyPoints Int      @default(0)
+  totalEarned   Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([userId])
+  @@index([points(sort: Desc)])
+  @@index([level])
+  @@map("reputation")
+}
+
+model ReputationHistory {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @db.Uuid
+  points      Int
+  action      String   @db.VarChar(50)
+  description String?  @db.Text
+  metadata    Json?    @db.JsonB
+  timestamp   DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([userId])
+  @@index([timestamp])
+  @@index([action])
+  @@map("reputation_history")
+}
+
+model Achievement {
+  id          String              @id @db.VarChar(50)
+  name        String              @db.VarChar(100)
+  description String              @db.Text
+  icon        String              @db.VarChar(10)
+  category    AchievementCategory
+  points      Int
+  requirement Json                @db.JsonB
+  rarity      AchievementRarity
+  order       Int                 @default(0)
+  isActive    Boolean             @default(true)
+  createdAt   DateTime            @default(now())
+
+  // Relations
+  userAchievements UserAchievement[]
+
+  // Indexes
+  @@index([category])
+  @@index([rarity])
+  @@map("achievements")
+}
+
+model UserAchievement {
+  userId        String    @db.Uuid
+  achievementId String    @db.VarChar(50)
+  progress      Int       @default(0)
+  completed     Boolean   @default(false)
+  unlockedAt    DateTime?
+  notified      Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievementId], references: [id])
+
+  // Constraints
+  @@id([userId, achievementId])
+  // Indexes
+  @@index([userId])
+  @@index([completed])
+  @@map("user_achievements")
+}
+
+// =====================
+// VIRTUAL SPACES DOMAIN
+// =====================
+
+model VirtualSpace {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String   @db.VarChar(100)
+  description  String?  @db.Text
+  ownerId      String   @db.Uuid
+  modelUrl     String   @db.Text
+  thumbnailUrl String?  @db.Text
+  capacity     Int      @default(50)
+  theme        String?  @db.VarChar(50)
+  isPublic     Boolean  @default(true)
+  isPremium    Boolean  @default(false)
+  settings     Json     @db.JsonB
+  stats        Json     @default("{}") @db.JsonB
+  activeUsers  Int      @default(0)
+  totalVisits  Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  owner  User         @relation(fields: [ownerId], references: [id])
+  visits SpaceVisit[]
+  events SpaceEvent[]
+
+  // Indexes
+  @@index([ownerId])
+  @@index([isPublic])
+  @@index([activeUsers(sort: Desc)])
+  @@map("virtual_spaces")
+}
+
+model SpaceVisit {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  spaceId    String   @db.Uuid
+  userId     String   @db.Uuid
+  duration   Int      @default(0) // seconds
+  activities Json?    @db.JsonB
+  joinedAt   DateTime @default(now())
+  leftAt     DateTime?
+
+  // Relations
+  space VirtualSpace @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  user  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([spaceId])
+  @@index([userId])
+  @@index([joinedAt])
+  @@map("space_visits")
+}
+
+model SpaceEvent {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  spaceId     String   @db.Uuid
+  hostId      String   @db.Uuid
+  name        String   @db.VarChar(200)
+  description String?  @db.Text
+  startTime   DateTime
+  endTime     DateTime
+  maxAttendees Int     @default(100)
+  isRecorded  Boolean  @default(false)
+  recordingUrl String? @db.Text
+  metadata    Json?    @db.JsonB
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  space VirtualSpace @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([spaceId])
+  @@index([startTime])
+  @@map("space_events")
+}
+
+// =====================
+// MODERATION & ADMIN
+// =====================
+
+model Report {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reporterId     String           @db.Uuid
+  contentType    String           @db.VarChar(20)
+  contentId      String           @db.Uuid
+  postId         String?          @db.Uuid
+  commentId      String?          @db.Uuid
+  reason         String           @db.VarChar(50)
+  details        String?          @db.Text
+  evidence       Json?            @db.JsonB
+  status         ModerationStatus @default(PENDING)
+  priority       Int              @default(0)
+  resolvedBy     String?          @db.Uuid
+  resolvedAt     DateTime?
+  resolutionNotes String?         @db.Text
+  createdAt      DateTime         @default(now())
+
+  // Relations
+  reporter User     @relation("Reporter", fields: [reporterId], references: [id])
+  post     Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment  Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([status])
+  @@index([contentType, contentId])
+  @@index([createdAt])
+  @@index([priority(sort: Desc)])
+  @@map("reports")
+}
+
+model ModerationAction {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  moderatorId String   @db.Uuid
+  targetType  String   @db.VarChar(20) // user, post, comment
+  targetId    String   @db.Uuid
+  action      String   @db.VarChar(50) // warn, suspend, ban, remove, restore
+  reason      String   @db.Text
+  details     Json?    @db.JsonB
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  // Relations
+  moderator User @relation(fields: [moderatorId], references: [id])
+
+  // Indexes
+  @@index([targetType, targetId])
+  @@index([moderatorId])
+  @@index([createdAt])
+  @@map("moderation_actions")
+}
+
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String?  @db.Uuid
+  action     String   @db.VarChar(100)
+  entityType String   @db.VarChar(50)
+  entityId   String?  @db.Uuid
+  oldData    Json?    @db.JsonB
+  newData    Json?    @db.JsonB
+  ipAddress  String?  @db.Inet
+  userAgent  String?  @db.Text
+  metadata   Json?    @db.JsonB
+  createdAt  DateTime @default(now())
+
+  // Relations
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  // Indexes
+  @@index([userId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// =====================
+// ANALYTICS
+// =====================
+
+model AnalyticsEvent {
+  id         String                      @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String?                     @db.Uuid
+  sessionId  String                      @db.Uuid
+  eventType  String                      @db.VarChar(100)
+  eventData  Json                        @db.JsonB
+  ip         String?                     @db.Inet
+  userAgent  String?                     @db.Text
+  referer    String?                     @db.Text
+  location   Unsupported("geography(Point, 4326)")?
+  country    String?                     @db.VarChar(2)
+  city       String?                     @db.VarChar(100)
+  device     Json?                       @db.JsonB
+  timestamp  DateTime                    @default(now())
+
+  @@id([id, timestamp])
+  @@index([userId, timestamp])
+  @@index([eventType, timestamp])
+  @@index([sessionId])
+  @@map("analytics_events")
+}
+
+// =====================
+// VIEWS
+// =====================
+
+view ActiveUsers {
+  id            String   @id @db.Uuid
+  username      String   @db.VarChar(30)
+  displayName   String   @db.VarChar(100)
+  lastActivity  DateTime
+  postCount     Int
+  followerCount Int
+  isVerified    Boolean
+
+  @@map("active_users_view")
+}
+
+view TrendingContent {
+  id            String   @id @db.Uuid
+  title         String   @db.VarChar(300)
+  authorId      String   @db.Uuid
+  authorName    String   @db.VarChar(100)
+  viewCount     Int
+  reactionCount Int
+  commentCount  Int
+  trendingScore Float
+  publishedAt   DateTime
+
+  @@map("trending_content_view")
+}
