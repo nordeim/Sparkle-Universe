@@ -4042,4 +4042,2601 @@ export class BlockchainService {
   }
   
   async stakeTokens(amount: string): Promise<TransactionResult> {
-    if (!this.signer) throw
+    if (!this.signer) throw new Error('Signer required for transactions');
+    
+    const amountWei = ethers.utils.parseEther(amount);
+    const tx = await this.contracts.token.stake(amountWei);
+    const receipt = await tx.wait();
+    
+    return {
+      hash: receipt.transactionHash,
+      blockNumber: receipt.blockNumber,
+      gasUsed: receipt.gasUsed.toString(),
+      status: receipt.status === 1 ? 'success' : 'failed',
+    };
+  }
+  
+  async unstakeTokens(amount: string): Promise<TransactionResult> {
+    if (!this.signer) throw new Error('Signer required for transactions');
+    
+    const amountWei = ethers.utils.parseEther(amount);
+    const tx = await this.contracts.token.unstake(amountWei);
+    const receipt = await tx.wait();
+    
+    return {
+      hash: receipt.transactionHash,
+      blockNumber: receipt.blockNumber,
+      gasUsed: receipt.gasUsed.toString(),
+      status: receipt.status === 1 ? 'success' : 'failed',
+    };
+  }
+  
+  async claimRewards(): Promise<TransactionResult> {
+    if (!this.signer) throw new Error('Signer required for transactions');
+    
+    const tx = await this.contracts.token.claimRewards();
+    const receipt = await tx.wait();
+    
+    return {
+      hash: receipt.transactionHash,
+      blockNumber: receipt.blockNumber,
+      gasUsed: receipt.gasUsed.toString(),
+      status: receipt.status === 1 ? 'success' : 'failed',
+    };
+  }
+  
+  // NFT functions
+  async mintNFT(
+    to: string,
+    uri: string,
+    contentType: number,
+    royaltyPercentage: number
+  ): Promise<{ tokenId: string; txResult: TransactionResult }> {
+    if (!this.signer) throw new Error('Signer required for transactions');
+    
+    const tx = await this.contracts.nft.mintNFT(
+      to,
+      uri,
+      contentType,
+      royaltyPercentage
+    );
+    const receipt = await tx.wait();
+    
+    // Extract token ID from events
+    const event = receipt.events?.find(
+      (e: any) => e.event === 'NFTMinted'
+    );
+    const tokenId = event?.args?.tokenId.toString();
+    
+    return {
+      tokenId,
+      txResult: {
+        hash: receipt.transactionHash,
+        blockNumber: receipt.blockNumber,
+        gasUsed: receipt.gasUsed.toString(),
+        status: receipt.status === 1 ? 'success' : 'failed',
+      },
+    };
+  }
+  
+  async getNFTMetadata(tokenId: string): Promise<{
+    uri: string;
+    creator: string;
+    createdAt: Date;
+    contentType: number;
+    isLocked: boolean;
+  }> {
+    const metadata = await this.contracts.nft.tokenMetadata(tokenId);
+    
+    return {
+      uri: metadata.uri,
+      creator: metadata.creator,
+      createdAt: new Date(metadata.createdAt.toNumber() * 1000),
+      contentType: metadata.contentType,
+      isLocked: metadata.isLocked,
+    };
+  }
+  
+  async ownerOf(tokenId: string): Promise<string> {
+    return await this.contracts.nft.ownerOf(tokenId);
+  }
+  
+  // Marketplace functions
+  async listNFT(tokenId: string, price: string): Promise<TransactionResult> {
+    if (!this.signer) throw new Error('Signer required for transactions');
+    
+    // First approve marketplace to transfer NFT
+    const approveTx = await this.contracts.nft.approve(
+      this.contracts.marketplace.address,
+      tokenId
+    );
+    await approveTx.wait();
+    
+    // List NFT
+    const priceWei = ethers.utils.parseEther(price);
+    const tx = await this.contracts.marketplace.listNFT(tokenId, priceWei);
+    const receipt = await tx.wait();
+    
+    return {
+      hash: receipt.transactionHash,
+      blockNumber: receipt.blockNumber,
+      gasUsed: receipt.gasUsed.toString(),
+      status: receipt.status === 1 ? 'success' : 'failed',
+    };
+  }
+  
+  async buyNFT(tokenId: string): Promise<TransactionResult> {
+    if (!this.signer) throw new Error('Signer required for transactions');
+    
+    // Get listing details
+    const listing = await this.contracts.marketplace.listings(tokenId);
+    
+    // Approve token spending
+    const approveTx = await this.contracts.token.approve(
+      this.contracts.marketplace.address,
+      listing.price
+    );
+    await approveTx.wait();
+    
+    // Buy NFT
+    const tx = await this.contracts.marketplace.buyNFT(tokenId);
+    const receipt = await tx.wait();
+    
+    return {
+      hash: receipt.transactionHash,
+      blockNumber: receipt.blockNumber,
+      gasUsed: receipt.gasUsed.toString(),
+      status: receipt.status === 1 ? 'success' : 'failed',
+    };
+  }
+  
+  async getListingDetails(tokenId: string): Promise<{
+    seller: string;
+    price: string;
+    isActive: boolean;
+    listedAt: Date;
+  } | null> {
+    const listing = await this.contracts.marketplace.listings(tokenId);
+    
+    if (!listing.isActive) {
+      return null;
+    }
+    
+    return {
+      seller: listing.seller,
+      price: ethers.utils.formatEther(listing.price),
+      isActive: listing.isActive,
+      listedAt: new Date(listing.listedAt.toNumber() * 1000),
+    };
+  }
+  
+  // Utility functions
+  async estimateGas(
+    contractName: 'token' | 'nft' | 'marketplace',
+    method: string,
+    params: any[]
+  ): Promise<string> {
+    const contract = this.contracts[contractName];
+    const gasEstimate = await contract.estimateGas[method](...params);
+    return gasEstimate.toString();
+  }
+  
+  async getCurrentGasPrice(): Promise<string> {
+    const gasPrice = await this.provider.getGasPrice();
+    return ethers.utils.formatUnits(gasPrice, 'gwei');
+  }
+  
+  async waitForTransaction(hash: string): Promise<TransactionResult> {
+    const receipt = await this.provider.waitForTransaction(hash);
+    
+    return {
+      hash: receipt.transactionHash,
+      blockNumber: receipt.blockNumber,
+      gasUsed: receipt.gasUsed.toString(),
+      status: receipt.status === 1 ? 'success' : 'failed',
+    };
+  }
+  
+  // Event listeners
+  onTokenTransfer(
+    callback: (from: string, to: string, amount: string) => void
+  ): () => void {
+    const filter = this.contracts.token.filters.Transfer();
+    
+    const listener = (from: string, to: string, amount: ethers.BigNumber) => {
+      callback(from, to, ethers.utils.formatEther(amount));
+    };
+    
+    this.contracts.token.on(filter, listener);
+    
+    // Return cleanup function
+    return () => {
+      this.contracts.token.off(filter, listener);
+    };
+  }
+  
+  onNFTMinted(
+    callback: (tokenId: string, creator: string, owner: string) => void
+  ): () => void {
+    const filter = this.contracts.nft.filters.NFTMinted();
+    
+    const listener = (
+      tokenId: ethers.BigNumber,
+      creator: string,
+      owner: string
+    ) => {
+      callback(tokenId.toString(), creator, owner);
+    };
+    
+    this.contracts.nft.on(filter, listener);
+    
+    return () => {
+      this.contracts.nft.off(filter, listener);
+    };
+  }
+}
+
+// Export factory function
+export function createBlockchainService(
+  config: BlockchainConfig
+): BlockchainService {
+  return new BlockchainService(config);
+}
+```
+
+**Checklist**:
+- [ ] Initialize provider and signer
+- [ ] Connect to deployed contracts
+- [ ] Implement token functions
+- [ ] Add NFT minting/transfer
+- [ ] Create marketplace methods
+- [ ] Add gas estimation
+- [ ] Implement event listeners
+- [ ] Handle transaction receipts
+
+#### 4. `/apps/web/src/components/features/wallet/WalletConnect.tsx`
+
+**Purpose**: Wallet connection component
+
+**Dependencies**:
+- `ethers`
+- `wagmi` or custom implementation
+
+**Implementation**:
+```typescript
+import { useState, useEffect } from 'react';
+import { ethers } from 'ethers';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Wallet, LogOut, ChevronDown } from 'lucide-react';
+import { useToast } from '@/hooks/useToast';
+import { formatAddress } from '@/lib/utils';
+
+interface WalletConnectProps {
+  onConnect?: (address: string, provider: ethers.providers.Provider) => void;
+  onDisconnect?: () => void;
+}
+
+const SUPPORTED_CHAIN_ID = 137; // Polygon Mainnet
+const SUPPORTED_CHAIN_NAME = 'Polygon';
+
+export function WalletConnect({ onConnect, onDisconnect }: WalletConnectProps) {
+  const [address, setAddress] = useState<string | null>(null);
+  const [chainId, setChainId] = useState<number | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [showWalletDialog, setShowWalletDialog] = useState(false);
+  const { toast } = useToast();
+  
+  useEffect(() => {
+    // Check if already connected
+    checkConnection();
+    
+    // Setup event listeners
+    if (window.ethereum) {
+      window.ethereum.on('accountsChanged', handleAccountsChanged);
+      window.ethereum.on('chainChanged', handleChainChanged);
+    }
+    
+    return () => {
+      if (window.ethereum) {
+        window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
+        window.ethereum.removeListener('chainChanged', handleChainChanged);
+      }
+    };
+  }, []);
+  
+  const checkConnection = async () => {
+    if (!window.ethereum) return;
+    
+    try {
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const accounts = await provider.listAccounts();
+      
+      if (accounts.length > 0) {
+        const signer = provider.getSigner();
+        const address = await signer.getAddress();
+        const { chainId } = await provider.getNetwork();
+        
+        setAddress(address);
+        setChainId(chainId);
+        
+        onConnect?.(address, provider);
+      }
+    } catch (error) {
+      console.error('Error checking connection:', error);
+    }
+  };
+  
+  const handleAccountsChanged = (accounts: string[]) => {
+    if (accounts.length === 0) {
+      disconnect();
+    } else {
+      setAddress(accounts[0]);
+      checkConnection();
+    }
+  };
+  
+  const handleChainChanged = (chainId: string) => {
+    setChainId(parseInt(chainId, 16));
+    window.location.reload();
+  };
+  
+  const connectMetaMask = async () => {
+    if (!window.ethereum) {
+      toast({
+        title: 'MetaMask not found',
+        description: 'Please install MetaMask to continue',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    setIsConnecting(true);
+    
+    try {
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      
+      // Request accounts
+      await provider.send('eth_requestAccounts', []);
+      
+      const signer = provider.getSigner();
+      const address = await signer.getAddress();
+      const { chainId } = await provider.getNetwork();
+      
+      // Check if on correct network
+      if (chainId !== SUPPORTED_CHAIN_ID) {
+        await switchNetwork();
+      }
+      
+      setAddress(address);
+      setChainId(chainId);
+      setShowWalletDialog(false);
+      
+      onConnect?.(address, provider);
+      
+      toast({
+        title: 'Wallet connected',
+        description: `Connected to ${formatAddress(address)}`,
+      });
+    } catch (error: any) {
+      console.error('Connection error:', error);
+      
+      if (error.code === 4001) {
+        toast({
+          title: 'Connection cancelled',
+          description: 'You rejected the connection request',
+          variant: 'destructive',
+        });
+      } else {
+        toast({
+          title: 'Connection failed',
+          description: error.message || 'Failed to connect wallet',
+          variant: 'destructive',
+        });
+      }
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+  
+  const switchNetwork = async () => {
+    if (!window.ethereum) return;
+    
+    try {
+      await window.ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: `0x${SUPPORTED_CHAIN_ID.toString(16)}` }],
+      });
+    } catch (error: any) {
+      // This error code indicates that the chain has not been added to MetaMask
+      if (error.code === 4902) {
+        try {
+          await window.ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [
+              {
+                chainId: `0x${SUPPORTED_CHAIN_ID.toString(16)}`,
+                chainName: 'Polygon Mainnet',
+                nativeCurrency: {
+                  name: 'MATIC',
+                  symbol: 'MATIC',
+                  decimals: 18,
+                },
+                rpcUrls: ['https://polygon-rpc.com'],
+                blockExplorerUrls: ['https://polygonscan.com'],
+              },
+            ],
+          });
+        } catch (addError) {
+          throw new Error('Failed to add network');
+        }
+      } else {
+        throw error;
+      }
+    }
+  };
+  
+  const disconnect = () => {
+    setAddress(null);
+    setChainId(null);
+    onDisconnect?.();
+    
+    toast({
+      title: 'Wallet disconnected',
+      description: 'Your wallet has been disconnected',
+    });
+  };
+  
+  if (address) {
+    return (
+      <div className="flex items-center gap-2">
+        {chainId !== SUPPORTED_CHAIN_ID && (
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={switchNetwork}
+          >
+            Wrong Network
+          </Button>
+        )}
+        
+        <Button
+          variant="outline"
+          size="sm"
+          className="flex items-center gap-2"
+        >
+          <Wallet className="h-4 w-4" />
+          {formatAddress(address)}
+          <ChevronDown className="h-4 w-4" />
+        </Button>
+        
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={disconnect}
+        >
+          <LogOut className="h-4 w-4" />
+        </Button>
+      </div>
+    );
+  }
+  
+  return (
+    <>
+      <Button
+        onClick={() => setShowWalletDialog(true)}
+        className="flex items-center gap-2"
+      >
+        <Wallet className="h-4 w-4" />
+        Connect Wallet
+      </Button>
+      
+      <Dialog open={showWalletDialog} onOpenChange={setShowWalletDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Connect Wallet</DialogTitle>
+            <DialogDescription>
+              Connect your wallet to access blockchain features
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-2">
+            <Button
+              variant="outline"
+              className="w-full justify-start"
+              onClick={connectMetaMask}
+              disabled={isConnecting}
+            >
+              <img
+                src="/images/metamask.svg"
+                alt="MetaMask"
+                className="h-5 w-5 mr-2"
+              />
+              {isConnecting ? 'Connecting...' : 'MetaMask'}
+            </Button>
+            
+            <Button
+              variant="outline"
+              className="w-full justify-start"
+              disabled
+            >
+              <img
+                src="/images/walletconnect.svg"
+                alt="WalletConnect"
+                className="h-5 w-5 mr-2"
+              />
+              WalletConnect (Coming Soon)
+            </Button>
+            
+            <Button
+              variant="outline"
+              className="w-full justify-start"
+              disabled
+            >
+              <img
+                src="/images/coinbase.svg"
+                alt="Coinbase"
+                className="h-5 w-5 mr-2"
+              />
+              Coinbase Wallet (Coming Soon)
+            </Button>
+          </div>
+          
+          <p className="text-sm text-muted-foreground mt-4">
+            By connecting a wallet, you agree to our Terms of Service and
+            acknowledge that you have read our Privacy Policy.
+          </p>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+```
+
+**Checklist**:
+- [ ] Detect MetaMask installation
+- [ ] Handle wallet connection
+- [ ] Check and switch networks
+- [ ] Display connected address
+- [ ] Handle account changes
+- [ ] Handle chain changes
+- [ ] Add disconnect function
+- [ ] Show connection dialog
+
+---
+
+## Phase 7: Advanced Features
+
+### 🎯 Goals & Objectives
+- Implement 3D virtual spaces
+- Add AR features
+- Create gamification system
+- Build advanced search
+
+### 📁 Files to Complete
+
+#### 1. `/packages/3d-engine/src/VirtualSpace.tsx`
+
+**Purpose**: 3D virtual space component
+
+**Dependencies**:
+- `@react-three/fiber`
+- `@react-three/drei`
+- `three`
+
+**Implementation**:
+```typescript
+import { Canvas } from '@react-three/fiber';
+import { 
+  Sky, 
+  Environment, 
+  ContactShadows,
+  OrbitControls,
+  PerspectiveCamera,
+  Stats
+} from '@react-three/drei';
+import { Physics } from '@react-three/rapier';
+import { Suspense, useRef, useState } from 'react';
+import { Room } from './components/Room';
+import { Avatar } from './components/Avatar';
+import { InteractiveObject } from './components/InteractiveObject';
+import { LoadingScreen } from './components/LoadingScreen';
+import { useVirtualSpace } from './hooks/useVirtualSpace';
+
+interface VirtualSpaceProps {
+  roomId: string;
+  userId: string;
+}
+
+export function VirtualSpace({ roomId, userId }: VirtualSpaceProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [debug, setDebug] = useState(false);
+  
+  const {
+    room,
+    participants,
+    objects,
+    isLoading,
+    error,
+    moveAvatar,
+    interactWithObject,
+  } = useVirtualSpace(roomId, userId);
+  
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-red-500">Error loading virtual space: {error.message}</p>
+      </div>
+    );
+  }
+  
+  return (
+    <div className="relative w-full h-full">
+      <Canvas
+        ref={canvasRef}
+        shadows
+        gl={{ 
+          antialias: true,
+          alpha: false,
+          powerPreference: 'high-performance'
+        }}
+        className="w-full h-full"
+      >
+        <PerspectiveCamera
+          makeDefault
+          position={[0, 5, 10]}
+          fov={60}
+          near={0.1}
+          far={1000}
+        />
+        
+        {/* Lighting */}
+        <Sky 
+          distance={450000}
+          sunPosition={[100, 20, 100]}
+          inclination={0}
+          azimuth={0.25}
+        />
+        <ambientLight intensity={0.4} />
+        <directionalLight
+          position={[10, 10, 5]}
+          intensity={1}
+          castShadow
+          shadow-mapSize={[2048, 2048]}
+          shadow-camera-far={50}
+          shadow-camera-left={-10}
+          shadow-camera-right={10}
+          shadow-camera-top={10}
+          shadow-camera-bottom={-10}
+        />
+        
+        <Suspense fallback={<LoadingScreen />}>
+          <Physics debug={debug} gravity={[0, -9.81, 0]}>
+            {/* Room environment */}
+            {room && <Room data={room} />}
+            
+            {/* Participants */}
+            {participants.map((participant) => (
+              <Avatar
+                key={participant.id}
+                user={participant}
+                position={participant.position}
+                rotation={participant.rotation}
+                isCurrentUser={participant.id === userId}
+                onMove={moveAvatar}
+              />
+            ))}
+            
+            {/* Interactive objects */}
+            {objects.map((object) => (
+              <InteractiveObject
+                key={object.id}
+                {...object}
+                onInteract={(action) => interactWithObject(object.id, action)}
+              />
+            ))}
+          </Physics>
+          
+          {/* Ground */}
+          <ContactShadows
+            position={[0, -0.01, 0]}
+            opacity={0.4}
+            scale={20}
+            blur={2}
+            far={4}
+          />
+          
+          <Environment preset="city" />
+        </Suspense>
+        
+        <OrbitControls
+          makeDefault
+          enablePan={true}
+          enableZoom={true}
+          enableRotate={true}
+          maxPolarAngle={Math.PI / 2.2}
+          minDistance={3}
+          maxDistance={20}
+        />
+        
+        {debug && <Stats />}
+      </Canvas>
+      
+      {/* UI Overlay */}
+      <div className="absolute top-4 left-4 space-y-2">
+        <div className="bg-black/50 text-white px-3 py-2 rounded">
+          <p className="text-sm">Room: {room?.name || 'Loading...'}</p>
+          <p className="text-xs">Participants: {participants.length}</p>
+        </div>
+        
+        <button
+          onClick={() => setDebug(!debug)}
+          className="bg-black/50 text-white px-3 py-1 rounded text-sm hover:bg-black/70"
+        >
+          {debug ? 'Hide' : 'Show'} Debug
+        </button>
+      </div>
+      
+      {/* Controls help */}
+      <div className="absolute bottom-4 right-4 bg-black/50 text-white px-3 py-2 rounded text-sm">
+        <p>🖱️ Click + Drag: Rotate camera</p>
+        <p>📱 Pinch: Zoom</p>
+        <p>⌨️ WASD: Move avatar</p>
+      </div>
+    </div>
+  );
+}
+
+// Room component
+// /packages/3d-engine/src/components/Room.tsx
+import { useGLTF } from '@react-three/drei';
+import { RigidBody } from '@react-three/rapier';
+
+interface RoomProps {
+  data: {
+    id: string;
+    name: string;
+    modelUrl: string;
+    scale?: number;
+  };
+}
+
+export function Room({ data }: RoomProps) {
+  const { scene } = useGLTF(data.modelUrl);
+  
+  return (
+    <RigidBody type="fixed" colliders="trimesh">
+      <primitive 
+        object={scene} 
+        scale={data.scale || 1}
+        position={[0, 0, 0]}
+      />
+    </RigidBody>
+  );
+}
+
+// Avatar component
+// /packages/3d-engine/src/components/Avatar.tsx
+import { useRef, useEffect } from 'react';
+import { useFrame } from '@react-three/fiber';
+import { useGLTF, useAnimations, Html } from '@react-three/drei';
+import { RigidBody } from '@react-three/rapier';
+import { Vector3, Euler } from 'three';
+import { useKeyboardControls } from '../hooks/useKeyboardControls';
+
+interface AvatarProps {
+  user: {
+    id: string;
+    username: string;
+    avatarUrl: string;
+  };
+  position: [number, number, number];
+  rotation: [number, number, number];
+  isCurrentUser: boolean;
+  onMove: (position: Vector3, rotation: Euler) => void;
+}
+
+export function Avatar({ 
+  user, 
+  position, 
+  rotation, 
+  isCurrentUser,
+  onMove 
+}: AvatarProps) {
+  const group = useRef<any>();
+  const { scene, animations } = useGLTF(user.avatarUrl);
+  const { actions, mixer } = useAnimations(animations, scene);
+  const [currentAnimation, setCurrentAnimation] = useState('idle');
+  
+  const controls = useKeyboardControls();
+  const velocity = useRef(new Vector3());
+  
+  useEffect(() => {
+    actions[currentAnimation]?.play();
+    
+    return () => {
+      actions[currentAnimation]?.stop();
+    };
+  }, [currentAnimation, actions]);
+  
+  useFrame((state, delta) => {
+    if (!isCurrentUser || !group.current) return;
+    
+    // Handle movement
+    const speed = 5;
+    velocity.current.set(0, 0, 0);
+    
+    if (controls.forward) velocity.current.z -= speed * delta;
+    if (controls.backward) velocity.current.z += speed * delta;
+    if (controls.left) velocity.current.x -= speed * delta;
+    if (controls.right) velocity.current.x += speed * delta;
+    
+    if (velocity.current.length() > 0) {
+      setCurrentAnimation('walk');
+      
+      // Apply movement
+      group.current.position.add(velocity.current);
+      
+      // Rotate to face movement direction
+      const angle = Math.atan2(velocity.current.x, velocity.current.z);
+      group.current.rotation.y = angle;
+      
+      // Notify server
+      onMove(
+        group.current.position.clone(),
+        group.current.rotation.clone()
+      );
+    } else {
+      setCurrentAnimation('idle');
+    }
+  });
+  
+  return (
+    <RigidBody
+      ref={group}
+      position={position}
+      rotation={rotation}
+      type={isCurrentUser ? 'dynamic' : 'kinematicPosition'}
+      enabledRotations={[false, true, false]}
+    >
+      <primitive object={scene} scale={1.8} />
+      
+      <Html position={[0, 2.5, 0]} center>
+        <div className="bg-black/80 text-white px-2 py-1 rounded text-sm whitespace-nowrap">
+          {user.username}
+          {isCurrentUser && ' (You)'}
+        </div>
+      </Html>
+    </RigidBody>
+  );
+}
+```
+
+**Checklist**:
+- [ ] Set up Three.js canvas
+- [ ] Add physics engine
+- [ ] Create room environment
+- [ ] Implement avatar system
+- [ ] Add movement controls
+- [ ] Handle multiplayer sync
+- [ ] Add interactive objects
+- [ ] Implement camera controls
+
+#### 2. `/packages/gamification/src/services/achievement.service.ts`
+
+**Purpose**: Achievement and gamification system
+
+**Dependencies**:
+- Database models
+- Event system
+
+**Implementation**:
+```typescript
+import { prisma } from '@sparkle/database';
+import { EventEmitter } from 'events';
+
+export interface Achievement {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  category: 'posting' | 'social' | 'exploration' | 'special';
+  points: number;
+  requirement: AchievementRequirement;
+  rarity: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
+}
+
+export interface AchievementRequirement {
+  type: string;
+  value: number;
+  metadata?: Record<string, any>;
+}
+
+export interface UserAchievement {
+  userId: string;
+  achievementId: string;
+  unlockedAt: Date;
+  progress: number;
+  completed: boolean;
+}
+
+export class AchievementService extends EventEmitter {
+  private achievements: Map<string, Achievement> = new Map();
+  
+  constructor() {
+    super();
+    this.loadAchievements();
+  }
+  
+  private loadAchievements() {
+    // Define all achievements
+    const achievementList: Achievement[] = [
+      // Posting achievements
+      {
+        id: 'first-post',
+        name: 'First Steps',
+        description: 'Create your first post',
+        icon: '✍️',
+        category: 'posting',
+        points: 10,
+        requirement: { type: 'posts_created', value: 1 },
+        rarity: 'common',
+      },
+      {
+        id: 'prolific-writer',
+        name: 'Prolific Writer',
+        description: 'Create 100 posts',
+        icon: '📚',
+        category: 'posting',
+        points: 100,
+        requirement: { type: 'posts_created', value: 100 },
+        rarity: 'rare',
+      },
+      {
+        id: 'viral-post',
+        name: 'Going Viral',
+        description: 'Get 1000 views on a single post',
+        icon: '🔥',
+        category: 'posting',
+        points: 50,
+        requirement: { type: 'post_views', value: 1000 },
+        rarity: 'uncommon',
+      },
+      
+      // Social achievements
+      {
+        id: 'social-butterfly',
+        name: 'Social Butterfly',
+        description: 'Follow 50 users',
+        icon: '🦋',
+        category: 'social',
+        points: 25,
+        requirement: { type: 'following_count', value: 50 },
+        rarity: 'common',
+      },
+      {
+        id: 'influencer',
+        name: 'Influencer',
+        description: 'Gain 1000 followers',
+        icon: '⭐',
+        category: 'social',
+        points: 200,
+        requirement: { type: 'followers_count', value: 1000 },
+        rarity: 'epic',
+      },
+      {
+        id: 'helpful-member',
+        name: 'Helpful Member',
+        description: 'Receive 100 thanks on your comments',
+        icon: '🤝',
+        category: 'social',
+        points: 75,
+        requirement: { type: 'thanks_received', value: 100 },
+        rarity: 'uncommon',
+      },
+      
+      // Exploration achievements
+      {
+        id: 'explorer',
+        name: 'Explorer',
+        description: 'Visit 10 different virtual spaces',
+        icon: '🗺️',
+        category: 'exploration',
+        points: 30,
+        requirement: { type: 'spaces_visited', value: 10 },
+        rarity: 'common',
+      },
+      {
+        id: 'treasure-hunter',
+        name: 'Treasure Hunter',
+        description: 'Find 5 hidden treasures in AR mode',
+        icon: '💎',
+        category: 'exploration',
+        points: 100,
+        requirement: { type: 'treasures_found', value: 5 },
+        rarity: 'rare',
+      },
+      
+      // Special achievements
+      {
+        id: 'early-adopter',
+        name: 'Early Adopter',
+        description: 'Join during the first month',
+        icon: '🌟',
+        category: 'special',
+        points: 50,
+        requirement: { 
+          type: 'account_age', 
+          value: 30,
+          metadata: { comparison: 'less_than' }
+        },
+        rarity: 'rare',
+      },
+      {
+        id: 'nft-collector',
+        name: 'NFT Collector',
+        description: 'Own 10 NFTs',
+        icon: '🖼️',
+        category: 'special',
+        points: 150,
+        requirement: { type: 'nfts_owned', value: 10 },
+        rarity: 'epic',
+      },
+      {
+        id: 'ai-whisperer',
+        name: 'AI Whisperer',
+        description: 'Have 1000 interactions with your AI companion',
+        icon: '🤖',
+        category: 'special',
+        points: 100,
+        requirement: { type: 'ai_interactions', value: 1000 },
+        rarity: 'rare',
+      },
+    ];
+    
+    // Load into map
+    achievementList.forEach(achievement => {
+      this.achievements.set(achievement.id, achievement);
+    });
+  }
+  
+  async checkAchievements(userId: string, eventType: string, eventData: any) {
+    // Get user's current achievements
+    const userAchievements = await this.getUserAchievements(userId);
+    const completed = new Set(
+      userAchievements
+        .filter(ua => ua.completed)
+        .map(ua => ua.achievementId)
+    );
+    
+    // Check each achievement
+    for (const [id, achievement] of this.achievements) {
+      // Skip if already completed
+      if (completed.has(id)) continue;
+      
+      // Check if this event type matches the achievement requirement
+      if (this.matchesRequirement(achievement.requirement, eventType, eventData)) {
+        const progress = await this.calculateProgress(
+          userId,
+          achievement.requirement
+        );
+        
+        if (progress >= achievement.requirement.value) {
+          // Achievement unlocked!
+          await this.unlockAchievement(userId, id);
+        } else {
+          // Update progress
+          await this.updateProgress(userId, id, progress);
+        }
+      }
+    }
+  }
+  
+  private matchesRequirement(
+    requirement: AchievementRequirement,
+    eventType: string,
+    eventData: any
+  ): boolean {
+    // Map event types to requirement types
+    const eventMapping: Record<string, string[]> = {
+      'post_created': ['posts_created'],
+      'post_viewed': ['post_views'],
+      'user_followed': ['following_count'],
+      'follower_gained': ['followers_count'],
+      'comment_thanked': ['thanks_received'],
+      'space_visited': ['spaces_visited'],
+      'treasure_found': ['treasures_found'],
+      'nft_minted': ['nfts_owned'],
+      'nft_purchased': ['nfts_owned'],
+      'ai_interaction': ['ai_interactions'],
+    };
+    
+    const mappedTypes = eventMapping[eventType] || [];
+    return mappedTypes.includes(requirement.type);
+  }
+  
+  private async calculateProgress(
+    userId: string,
+    requirement: AchievementRequirement
+  ): Promise<number> {
+    switch (requirement.type) {
+      case 'posts_created':
+        return await prisma.post.count({ where: { authorId: userId } });
+        
+      case 'following_count':
+        return await prisma.follow.count({ where: { followerId: userId } });
+        
+      case 'followers_count':
+        return await prisma.follow.count({ where: { followingId: userId } });
+        
+      case 'account_age':
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+        if (!user) return 0;
+        const days = Math.floor(
+          (Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        return requirement.metadata?.comparison === 'less_than' 
+          ? days <= requirement.value ? requirement.value : 0
+          : days;
+        
+      // Add more cases as needed
+      default:
+        return 0;
+    }
+  }
+  
+  private async unlockAchievement(userId: string, achievementId: string) {
+    const achievement = this.achievements.get(achievementId);
+    if (!achievement) return;
+    
+    // Create achievement record
+    await prisma.userAchievement.create({
+      data: {
+        userId,
+        achievementId,
+        completed: true,
+        progress: achievement.requirement.value,
+        unlockedAt: new Date(),
+      },
+    });
+    
+    // Award points
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        totalPoints: { increment: achievement.points },
+      },
+    });
+    
+    // Emit event
+    this.emit('achievement:unlocked', {
+      userId,
+      achievement,
+      timestamp: new Date(),
+    });
+    
+    // Send notification
+    await this.sendAchievementNotification(userId, achievement);
+  }
+  
+  private async updateProgress(
+    userId: string,
+    achievementId: string,
+    progress: number
+  ) {
+    await prisma.userAchievement.upsert({
+      where: {
+        userId_achievementId: {
+          userId,
+          achievementId,
+        },
+      },
+      update: {
+        progress,
+      },
+      create: {
+        userId,
+        achievementId,
+        progress,
+        completed: false,
+      },
+    });
+  }
+  
+  async getUserAchievements(userId: string): Promise<UserAchievement[]> {
+    return await prisma.userAchievement.findMany({
+      where: { userId },
+    });
+  }
+  
+  async getAchievementDetails(achievementId: string): Promise<Achievement | null> {
+    return this.achievements.get(achievementId) || null;
+  }
+  
+  async getLeaderboard(
+    category?: string,
+    limit: number = 100
+  ): Promise<Array<{ userId: string; points: number; rank: number }>> {
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        totalPoints: true,
+      },
+      orderBy: {
+        totalPoints: 'desc',
+      },
+      take: limit,
+    });
+    
+    return users.map((user, index) => ({
+      userId: user.id,
+      points: user.totalPoints,
+      rank: index + 1,
+    }));
+  }
+  
+  private async sendAchievementNotification(
+    userId: string,
+    achievement: Achievement
+  ) {
+    // This would integrate with your notification service
+    console.log(`Sending achievement notification to ${userId}:`, achievement);
+  }
+}
+
+// Export singleton instance
+export const achievementService = new AchievementService();
+```
+
+**Checklist**:
+- [ ] Define achievement types
+- [ ] Create progress tracking
+- [ ] Implement unlock logic
+- [ ] Add point system
+- [ ] Create leaderboards
+- [ ] Handle notifications
+- [ ] Track user progress
+- [ ] Emit achievement events
+
+---
+
+## Phase 8: Admin & Analytics
+
+### 🎯 Goals & Objectives
+- Build comprehensive admin dashboard
+- Implement analytics tracking
+- Create moderation tools
+- Add reporting system
+
+### 📁 Files to Complete
+
+#### 1. `/apps/web/src/app/(admin)/admin/dashboard/page.tsx`
+
+**Purpose**: Main admin dashboard
+
+**Dependencies**:
+- Analytics components
+- Chart libraries
+
+**Implementation**:
+```typescript
+'use client';
+
+import { useQuery } from '@tanstack/react-query';
+import { 
+  Card, 
+  CardContent, 
+  CardDescription, 
+  CardHeader, 
+  CardTitle 
+} from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { 
+  Users, 
+  FileText, 
+  Activity, 
+  DollarSign,
+  TrendingUp,
+  AlertCircle,
+  Shield,
+  BarChart3
+} from 'lucide-react';
+import { StatsCard } from '@/components/admin/StatsCard';
+import { ActivityChart } from '@/components/admin/ActivityChart';
+import { RecentActivity } from '@/components/admin/RecentActivity';
+import { TopContent } from '@/components/admin/TopContent';
+import { SystemHealth } from '@/components/admin/SystemHealth';
+import { ModerationQueue } from '@/components/admin/ModerationQueue';
+
+export default function AdminDashboard() {
+  // Fetch dashboard data
+  const { data: stats, isLoading: statsLoading } = useQuery({
+    queryKey: ['admin', 'stats'],
+    queryFn: async () => {
+      const response = await fetch('/api/admin/stats', {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
+        },
+      });
+      if (!response.ok) throw new Error('Failed to fetch stats');
+      return response.json();
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+  
+  const { data: analytics } = useQuery({
+    queryKey: ['admin', 'analytics'],
+    queryFn: async () => {
+      const response = await fetch('/api/admin/analytics?period=7d', {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
+        },
+      });
+      if (!response.ok) throw new Error('Failed to fetch analytics');
+      return response.json();
+    },
+  });
+  
+  if (statsLoading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+  
+  return (
+    <div className="container mx-auto p-6 space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Admin Dashboard</h1>
+        <p className="text-muted-foreground">
+          Monitor and manage your Sparkle Universe platform
+        </p>
+      </div>
+      
+      {/* Key Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatsCard
+          title="Total Users"
+          value={stats?.users.total || 0}
+          change={stats?.users.change || 0}
+          changeLabel="from last week"
+          icon={<Users className="h-4 w-4" />}
+        />
+        
+        <StatsCard
+          title="Active Posts"
+          value={stats?.posts.total || 0}
+          change={stats?.posts.change || 0}
+          changeLabel="from last week"
+          icon={<FileText className="h-4 w-4" />}
+        />
+        
+        <StatsCard
+          title="Daily Active Users"
+          value={stats?.dau || 0}
+          change={stats?.dauChange || 0}
+          changeLabel="from yesterday"
+          icon={<Activity className="h-4 w-4" />}
+        />
+        
+        <StatsCard
+          title="Revenue"
+          value={`$${(stats?.revenue.total || 0).toFixed(2)}`}
+          change={stats?.revenue.change || 0}
+          changeLabel="from last month"
+          icon={<DollarSign className="h-4 w-4" />}
+          valueClassName="font-mono"
+        />
+      </div>
+      
+      {/* Main Content Tabs */}
+      <Tabs defaultValue="overview" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="users">Users</TabsTrigger>
+          <TabsTrigger value="content">Content</TabsTrigger>
+          <TabsTrigger value="moderation">Moderation</TabsTrigger>
+          <TabsTrigger value="analytics">Analytics</TabsTrigger>
+          <TabsTrigger value="system">System</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="overview" className="space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Platform Activity</CardTitle>
+                <CardDescription>
+                  User engagement over the last 7 days
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ActivityChart data={analytics?.activity || []} />
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardHeader>
+                <CardTitle>Revenue Analytics</CardTitle>
+                <CardDescription>
+                  Revenue breakdown by source
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <RevenueChart data={analytics?.revenue || []} />
+              </CardContent>
+            </Card>
+          </div>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle>Recent Activity</CardTitle>
+                <CardDescription>
+                  Latest platform events
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <RecentActivity activities={stats?.recentActivity || []} />
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardHeader>
+                <CardTitle>Top Content</CardTitle>
+                <CardDescription>
+                  Most popular posts this week
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <TopContent posts={stats?.topContent || []} />
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+        
+        <TabsContent value="users" className="space-y-4">
+          <UserManagement />
+        </TabsContent>
+        
+        <TabsContent value="content" className="space-y-4">
+          <ContentManagement />
+        </TabsContent>
+        
+        <TabsContent value="moderation" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="h-5 w-5" />
+                Moderation Queue
+              </CardTitle>
+              <CardDescription>
+                Review reported content and take action
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ModerationQueue />
+            </CardContent>
+          </Card>
+        </TabsContent>
+        
+        <TabsContent value="analytics" className="space-y-4">
+          <AdvancedAnalytics />
+        </TabsContent>
+        
+        <TabsContent value="system" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <AlertCircle className="h-5 w-5" />
+                System Health
+              </CardTitle>
+              <CardDescription>
+                Monitor system performance and health
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <SystemHealth />
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+// Sub-components for different sections
+function UserManagement() {
+  const { data: users, isLoading } = useQuery({
+    queryKey: ['admin', 'users'],
+    queryFn: async () => {
+      const response = await fetch('/api/admin/users', {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
+        },
+      });
+      if (!response.ok) throw new Error('Failed to fetch users');
+      return response.json();
+    },
+  });
+  
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold">User Management</h2>
+        <div className="flex gap-2">
+          <Button variant="outline">Export Users</Button>
+          <Button>Invite Users</Button>
+        </div>
+      </div>
+      
+      <Card>
+        <CardContent className="p-0">
+          <UserTable users={users?.users || []} isLoading={isLoading} />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ContentManagement() {
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold">Content Management</h2>
+        <div className="flex gap-2">
+          <Button variant="outline">Content Guidelines</Button>
+          <Button>Featured Posts</Button>
+        </div>
+      </div>
+      
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <StatsCard
+          title="Total Posts"
+          value="12,456"
+          change={8.2}
+          icon={<FileText className="h-4 w-4" />}
+        />
+        <StatsCard
+          title="Comments"
+          value="45,789"
+          change={12.5}
+          icon={<MessageSquare className="h-4 w-4" />}
+        />
+        <StatsCard
+          title="Media Uploads"
+          value="8,234"
+          change={-2.3}
+          icon={<Image className="h-4 w-4" />}
+        />
+      </div>
+      
+      <Card>
+        <CardHeader>
+          <CardTitle>Content Overview</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ContentTable />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function AdvancedAnalytics() {
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold">Advanced Analytics</h2>
+        <div className="flex gap-2">
+          <DateRangePicker />
+          <Button variant="outline">Export Report</Button>
+        </div>
+      </div>
+      
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>User Retention</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <RetentionChart />
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader>
+            <CardTitle>Engagement Funnel</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <FunnelChart />
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader>
+            <CardTitle>Geographic Distribution</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <GeoChart />
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader>
+            <CardTitle>Platform Performance</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <PerformanceMetrics />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+```
+
+**Checklist**:
+- [ ] Create dashboard layout
+- [ ] Add key metrics cards
+- [ ] Implement activity charts
+- [ ] Add user management
+- [ ] Create content overview
+- [ ] Add moderation queue
+- [ ] Implement analytics views
+- [ ] Add system health monitoring
+
+#### 2. `/services/analytics/src/analytics.service.ts`
+
+**Purpose**: Analytics tracking service
+
+**Dependencies**:
+- Time series database
+- Event tracking
+
+**Implementation**:
+```typescript
+import { InfluxDB, Point, WriteApi } from '@influxdata/influxdb-client';
+import { prisma } from '@sparkle/database';
+import { Redis } from 'ioredis';
+
+interface AnalyticsEvent {
+  userId?: string;
+  sessionId: string;
+  eventType: string;
+  eventData: Record<string, any>;
+  timestamp: Date;
+  metadata?: {
+    ip?: string;
+    userAgent?: string;
+    referer?: string;
+    country?: string;
+    city?: string;
+  };
+}
+
+interface MetricQuery {
+  metric: string;
+  aggregation: 'sum' | 'avg' | 'count' | 'min' | 'max';
+  timeRange: {
+    start: Date;
+    end: Date;
+  };
+  groupBy?: string[];
+  filters?: Record<string, any>;
+}
+
+export class AnalyticsService {
+  private influx: InfluxDB;
+  private writeApi: WriteApi;
+  private redis: Redis;
+  
+  constructor() {
+    this.influx = new InfluxDB({
+      url: process.env.INFLUXDB_URL!,
+      token: process.env.INFLUXDB_TOKEN!,
+    });
+    
+    this.writeApi = this.influx.getWriteApi(
+      process.env.INFLUXDB_ORG!,
+      process.env.INFLUXDB_BUCKET!,
+      'ns' // nanosecond precision
+    );
+    
+    this.redis = new Redis(process.env.REDIS_URL!);
+  }
+  
+  async trackEvent(event: AnalyticsEvent): Promise<void> {
+    try {
+      // Write to InfluxDB
+      const point = new Point('events')
+        .tag('event_type', event.eventType)
+        .tag('user_id', event.userId || 'anonymous')
+        .tag('session_id', event.sessionId);
+      
+      // Add metadata as tags
+      if (event.metadata) {
+        if (event.metadata.country) {
+          point.tag('country', event.metadata.country);
+        }
+        if (event.metadata.city) {
+          point.tag('city', event.metadata.city);
+        }
+      }
+      
+      // Add event data as fields
+      Object.entries(event.eventData).forEach(([key, value]) => {
+        if (typeof value === 'number') {
+          point.floatField(key, value);
+        } else if (typeof value === 'boolean') {
+          point.booleanField(key, value);
+        } else {
+          point.stringField(key, String(value));
+        }
+      });
+      
+      point.timestamp(event.timestamp);
+      this.writeApi.writePoint(point);
+      
+      // Update real-time counters in Redis
+      await this.updateRealtimeMetrics(event);
+      
+      // Store in PostgreSQL for detailed analysis
+      await this.storeEventInDB(event);
+      
+    } catch (error) {
+      console.error('Error tracking event:', error);
+      // Don't throw - analytics shouldn't break the app
+    }
+  }
+  
+  private async updateRealtimeMetrics(event: AnalyticsEvent): Promise<void> {
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Update DAU (Daily Active Users)
+    if (event.userId) {
+      await this.redis.sadd(`dau:${today}`, event.userId);
+      await this.redis.expire(`dau:${today}`, 86400 * 2); // 2 days
+    }
+    
+    // Update event counters
+    await this.redis.hincrby(`events:${today}`, event.eventType, 1);
+    await this.redis.expire(`events:${today}`, 86400 * 7); // 7 days
+    
+    // Update hourly metrics
+    const hour = new Date().getHours();
+    await this.redis.hincrby(`events:${today}:${hour}`, event.eventType, 1);
+    await this.redis.expire(`events:${today}:${hour}`, 86400); // 1 day
+  }
+  
+  private async storeEventInDB(event: AnalyticsEvent): Promise<void> {
+    await prisma.analyticsEvent.create({
+      data: {
+        userId: event.userId,
+        sessionId: event.sessionId,
+        eventType: event.eventType,
+        eventData: event.eventData,
+        ip: event.metadata?.ip,
+        userAgent: event.metadata?.userAgent,
+        referer: event.metadata?.referer,
+        country: event.metadata?.country,
+        city: event.metadata?.city,
+        timestamp: event.timestamp,
+      },
+    });
+  }
+  
+  async queryMetrics(query: MetricQuery): Promise<any[]> {
+    const { metric, aggregation, timeRange, groupBy, filters } = query;
+    
+    let fluxQuery = `
+      from(bucket: "${process.env.INFLUXDB_BUCKET}")
+        |> range(start: ${timeRange.start.toISOString()}, stop: ${timeRange.end.toISOString()})
+        |> filter(fn: (r) => r._measurement == "events")
+    `;
+    
+    // Add filters
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        fluxQuery += `
+          |> filter(fn: (r) => r.${key} == "${value}")
+        `;
+      });
+    }
+    
+    // Add aggregation
+    switch (aggregation) {
+      case 'sum':
+        fluxQuery += `|> sum()`;
+        break;
+      case 'avg':
+        fluxQuery += `|> mean()`;
+        break;
+      case 'count':
+        fluxQuery += `|> count()`;
+        break;
+      case 'min':
+        fluxQuery += `|> min()`;
+        break;
+      case 'max':
+        fluxQuery += `|> max()`;
+        break;
+    }
+    
+    // Add grouping
+    if (groupBy && groupBy.length > 0) {
+      fluxQuery += `|> group(columns: [${groupBy.map(g => `"${g}"`).join(', ')}])`;
+    }
+    
+    const queryApi = this.influx.getQueryApi(process.env.INFLUXDB_ORG!);
+    const results: any[] = [];
+    
+    await queryApi.collectRows(fluxQuery, (row) => {
+      results.push(row);
+    });
+    
+    return results;
+  }
+  
+  async getDashboardStats(): Promise<{
+    users: { total: number; change: number };
+    posts: { total: number; change: number };
+    dau: number;
+    dauChange: number;
+    revenue: { total: number; change: number };
+    recentActivity: any[];
+    topContent: any[];
+  }> {
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const yesterday = new Date(now.getTime() - 86400000).toISOString().split('T')[0];
+    const lastWeek = new Date(now.getTime() - 7 * 86400000);
+    
+    // Get user stats
+    const [totalUsers, newUsersThisWeek, newUsersLastWeek] = await Promise.all([
+      prisma.user.count(),
+      prisma.user.count({
+        where: {
+          createdAt: { gte: lastWeek },
+        },
+      }),
+      prisma.user.count({
+        where: {
+          createdAt: {
+            gte: new Date(now.getTime() - 14 * 86400000),
+            lt: lastWeek,
+          },
+        },
+      }),
+    ]);
+    
+    // Get post stats
+    const [totalPosts, newPostsThisWeek, newPostsLastWeek] = await Promise.all([
+      prisma.post.count({ where: { status: 'PUBLISHED' } }),
+      prisma.post.count({
+        where: {
+          status: 'PUBLISHED',
+          publishedAt: { gte: lastWeek },
+        },
+      }),
+      prisma.post.count({
+        where: {
+          status: 'PUBLISHED',
+          publishedAt: {
+            gte: new Date(now.getTime() - 14 * 86400000),
+            lt: lastWeek,
+          },
+        },
+      }),
+    ]);
+    
+    // Get DAU
+    const [dauToday, dauYesterday] = await Promise.all([
+      this.redis.scard(`dau:${today}`),
+      this.redis.scard(`dau:${yesterday}`),
+    ]);
+    
+    // Get revenue (simplified - would query payment system)
+    const revenue = {
+      total: 45678.90,
+      change: 12.5,
+    };
+    
+    // Get recent activity
+    const recentActivity = await prisma.analyticsEvent.findMany({
+      take: 10,
+      orderBy: { timestamp: 'desc' },
+      include: {
+        user: {
+          select: {
+            username: true,
+            profile: {
+              select: {
+                avatarUrl: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    
+    // Get top content
+    const topContent = await prisma.post.findMany({
+      take: 5,
+      where: {
+        status: 'PUBLISHED',
+        publishedAt: { gte: lastWeek },
+      },
+      orderBy: {
+        viewCount: 'desc',
+      },
+      include: {
+        author: {
+          select: {
+            username: true,
+          },
+        },
+      },
+    });
+    
+    return {
+      users: {
+        total: totalUsers,
+        change: calculatePercentageChange(newUsersThisWeek, newUsersLastWeek),
+      },
+      posts: {
+        total: totalPosts,
+        change: calculatePercentageChange(newPostsThisWeek, newPostsLastWeek),
+      },
+      dau: dauToday,
+      dauChange: calculatePercentageChange(dauToday, dauYesterday),
+      revenue,
+      recentActivity,
+      topContent,
+    };
+  }
+  
+  async getActivityChartData(days: number = 7): Promise<any[]> {
+    const data = [];
+    const now = new Date();
+    
+    for (let i = days - 1; i >= 0; i--) {
+      const date = new Date(now.getTime() - i * 86400000);
+      const dateStr = date.toISOString().split('T')[0];
+      
+      const [posts, comments, reactions] = await Promise.all([
+        this.redis.hget(`events:${dateStr}`, 'post_created') || '0',
+        this.redis.hget(`events:${dateStr}`, 'comment_created') || '0',
+        this.redis.hget(`events:${dateStr}`, 'reaction_added') || '0',
+      ]);
+      
+      data.push({
+        date: dateStr,
+        posts: parseInt(posts),
+        comments: parseInt(comments),
+        reactions: parseInt(reactions),
+      });
+    }
+    
+    return data;
+  }
+  
+  // Cleanup old data
+  async cleanup(daysToKeep: number = 30): Promise<void> {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+    
+    await prisma.analyticsEvent.deleteMany({
+      where: {
+        timestamp: { lt: cutoffDate },
+      },
+    });
+  }
+}
+
+function calculatePercentageChange(current: number, previous: number): number {
+  if (previous === 0) return current > 0 ? 100 : 0;
+  return ((current - previous) / previous) * 100;
+}
+
+// Export singleton
+export const analyticsService = new AnalyticsService();
+```
+
+**Checklist**:
+- [ ] Set up InfluxDB client
+- [ ] Implement event tracking
+- [ ] Add real-time metrics
+- [ ] Create metric queries
+- [ ] Build dashboard stats
+- [ ] Add activity charts
+- [ ] Implement data cleanup
+- [ ] Handle error cases
+
+---
+
+## 🗄️ Database Schema
+
+```sql
+-- Enable required extensions
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+CREATE EXTENSION IF NOT EXISTS "vector";
+
+-- Create custom types
+CREATE TYPE post_status AS ENUM ('DRAFT', 'PUBLISHED', 'ARCHIVED', 'REMOVED');
+CREATE TYPE content_type AS ENUM ('POST', 'ARTWORK', 'ACHIEVEMENT', 'COLLECTIBLE');
+CREATE TYPE user_role AS ENUM ('USER', 'MODERATOR', 'ADMIN');
+CREATE TYPE reaction_type AS ENUM ('LIKE', 'LOVE', 'LAUGH', 'WOW', 'SAD', 'ANGRY');
+CREATE TYPE notification_type AS ENUM ('POST_LIKE', 'POST_COMMENT', 'FOLLOW', 'MENTION', 'ACHIEVEMENT', 'SYSTEM');
+
+-- Users table
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    username VARCHAR(30) UNIQUE NOT NULL,
+    hashed_password TEXT,
+    email_verified TIMESTAMP,
+    role user_role DEFAULT 'USER',
+    total_points INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP,
+    
+    CONSTRAINT username_format CHECK (username ~ '^[a-zA-Z0-9_-]+$')
+);
+
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_username ON users(username);
+CREATE INDEX idx_users_created_at ON users(created_at);
+
+-- Profiles table
+CREATE TABLE profiles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    display_name VARCHAR(100) NOT NULL,
+    bio TEXT,
+    avatar_url TEXT,
+    banner_url TEXT,
+    location VARCHAR(100),
+    website TEXT,
+    pronouns VARCHAR(50),
+    timezone VARCHAR(50) DEFAULT 'UTC',
+    social_links JSONB,
+    theme VARCHAR(20) DEFAULT 'system',
+    accent_color VARCHAR(7) DEFAULT '#6366f1',
+    is_public BOOLEAN DEFAULT TRUE,
+    show_email BOOLEAN DEFAULT FALSE,
+    
+    CONSTRAINT valid_accent_color CHECK (accent_color ~ '^#[0-9A-Fa-f]{6}$')
+);
+
+CREATE INDEX idx_profiles_user_id ON profiles(user_id);
+
+-- Sessions table
+CREATE TABLE sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token TEXT UNIQUE NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    ip_address INET,
+    user_agent TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX idx_sessions_token ON sessions(token);
+CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
+
+-- OAuth accounts table
+CREATE TABLE oauth_accounts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider VARCHAR(50) NOT NULL,
+    provider_account_id VARCHAR(255) NOT NULL,
+    access_token TEXT,
+    refresh_token TEXT,
+    expires_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    UNIQUE(provider, provider_account_id)
+);
+
+CREATE INDEX idx_oauth_accounts_user_id ON oauth_accounts(user_id);
+
+-- AI Companions table
+CREATE TABLE ai_companions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(50) NOT NULL,
+    personality JSONB NOT NULL,
+    avatar_config JSONB NOT NULL,
+    voice_id VARCHAR(100) NOT NULL,
+    interactions INTEGER DEFAULT 0,
+    last_interaction TIMESTAMP,
+    learning_state JSONB,
+    custom_traits JSONB,
+    restrictions JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_ai_companions_user_id ON ai_companions(user_id);
+
+-- Companion memories table with vector embeddings
+CREATE TABLE companion_memories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    companion_id UUID NOT NULL REFERENCES ai_companions(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    embedding vector(1536),
+    metadata JSONB,
+    importance FLOAT DEFAULT 1.0,
+    access_count INTEGER DEFAULT 0,
+    last_accessed TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_companion_memories_companion_id ON companion_memories(companion_id);
+CREATE INDEX idx_companion_memories_created_at ON companion_memories(created_at);
+CREATE INDEX idx_companion_memories_embedding ON companion_memories USING ivfflat (embedding vector_cosine_ops);
+
+-- Categories table
+CREATE TABLE categories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(50) UNIQUE NOT NULL,
+    slug VARCHAR(50) UNIQUE NOT NULL,
+    description TEXT,
+    parent_id UUID REFERENCES categories(id),
+    icon VARCHAR(50),
+    color VARCHAR(7),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_categories_slug ON categories(slug);
+CREATE INDEX idx_categories_parent_id ON categories(parent_id);
+
+-- Tags table
+CREATE TABLE tags (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(30) UNIQUE NOT NULL,
+    slug VARCHAR(30) UNIQUE NOT NULL,
+    usage_count INTEGER DEFAULT 0
+);
+
+CREATE INDEX idx_tags_name ON tags(name);
+CREATE INDEX idx_tags_usage_count ON tags(usage_count DESC);
+
+-- Posts table
+CREATE TABLE posts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    author_id UUID NOT NULL REFERENCES users(id),
+    title VARCHAR(300) NOT NULL,
+    slug VARCHAR(350) UNIQUE NOT NULL,
+    content JSONB NOT NULL,
+    excerpt TEXT,
+    cover_image TEXT,
+    category_id UUID REFERENCES categories(id),
+    status post_status DEFAULT 'DRAFT',
+    published_at TIMESTAMP,
+    featured_at TIMESTAMP,
+    view_count INTEGER DEFAULT 0,
+    share_count INTEGER DEFAULT 0,
+    reading_time INTEGER,
+    sentiment FLOAT,
+    ai_suggestions JSONB,
+    nft_token_id VARCHAR(100) UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP,
+    
+    CONSTRAINT valid_sentiment CHECK (sentiment >= -1 AND sentiment <= 1)
+);
+
+CREATE INDEX idx_posts_author_id ON posts(author_id);
+CREATE INDEX idx_posts_slug ON posts(slug);
+CREATE INDEX idx_posts_status_published ON posts(status, published_at);
+CREATE INDEX idx_posts_category_id ON posts(category_id);
+CREATE INDEX idx_posts_created_at ON posts(created_at);
+CREATE INDEX idx_posts_title_search ON posts USING gin(to_tsvector('english', title));
+
+-- Post tags junction table
+CREATE TABLE post_tags (
+    post_id UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    tag_id UUID NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    PRIMARY KEY (post_id, tag_id)
+);
+
+CREATE INDEX idx_post_tags_post_id ON post_tags(post_id);
+CREATE INDEX idx_post_tags_tag_id ON post_tags(tag_id);
+
+-- Comments table
+CREATE TABLE comments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    post_id UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    author_id UUID NOT NULL REFERENCES users(id),
+    parent_id UUID REFERENCES comments(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    edited_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP
+);
+
+CREATE INDEX idx_comments_post_id ON comments(post_id);
+CREATE INDEX idx_comments_author_id ON comments(author_id);
+CREATE INDEX idx_comments_parent_id ON comments(parent_id);
+CREATE INDEX idx_comments_created_at ON comments(created_at);
+
+-- Reactions table
+CREATE TABLE reactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    post_id UUID REFERENCES posts(id) ON DELETE CASCADE,
+    comment_id UUID REFERENCES comments(id) ON DELETE CASCADE,
+    reaction_type reaction_type NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT reaction_target CHECK (
+        (post_id IS NOT NULL AND comment_id IS NULL) OR
+        (post_id IS NULL AND comment_id IS NOT NULL)
+    ),
+    UNIQUE(user_id, post_id, reaction_type),
+    UNIQUE(user_id, comment_id, reaction_type)
+);
+
+CREATE INDEX idx_reactions_user_id ON reactions(user_id);
+CREATE INDEX idx_reactions_post_id ON reactions(post_id);
+CREATE INDEX idx_reactions_comment_id ON reactions(comment_id);
+
+-- Follows table
+CREATE TABLE follows (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    follower_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    following_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT no_self_follow CHECK (follower_id != following_id),
+    UNIQUE(follower_id, following_id)
+);
+
+CREATE INDEX idx_follows_follower_id ON follows(follower_id);
+CREATE INDEX idx_follows_following_id ON follows(following_id);
+
+-- Wallets table
+CREATE TABLE wallets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID UNIQUE NOT NULL REFERENCES users(id),
+    address VARCHAR(42) UNIQUE NOT NULL,
+    chain_id INTEGER NOT NULL,
+    spark_balance DECIMAL(36, 18) DEFAULT 0,
+    eth_balance DECIMAL(36, 18) DEFAULT 0,
+    encrypted_key TEXT,
+    is_external BOOLEAN DEFAULT TRUE,
+    last_activity TIMESTAMP,
+    total_gas_spent DECIMAL(36, 18) DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT valid_address CHECK (address ~ '^0x[a-fA-F0-9]{40}$')
+);
+
+CREATE INDEX idx_wallets_address ON wallets(address);
+CREATE INDEX idx_wallets_user_id ON wallets(user_id);
+
+-- NFTs table
+CREATE TABLE nfts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    token_id VARCHAR(100) UNIQUE NOT NULL,
+    contract_address VARCHAR(42) NOT NULL,
+    owner_address VARCHAR(42) NOT NULL,
+    creator_id UUID NOT NULL REFERENCES users(id),
+    name VARCHAR(200) NOT NULL,
+    description TEXT,
+    image_url TEXT NOT NULL,
+    animation_url TEXT,
+    attributes JSONB,
+    post_id UUID UNIQUE REFERENCES posts(id),
+    is_listed BOOLEAN DEFAULT FALSE,
+    list_price DECIMAL(36, 18),
+    last_sale_price DECIMAL(36, 18),
+    minted_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_nfts_token_id ON nfts(token_id);
+CREATE INDEX idx_nfts_owner_address ON nfts(owner_address);
+CREATE INDEX idx_nfts_creator_id ON nfts(creator_id);
+
+-- Transactions table
+CREATE TABLE transactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id),
+    wallet_id UUID NOT NULL REFERENCES wallets(id),
+    transaction_hash VARCHAR(66) UNIQUE NOT NULL,
+    type VARCHAR(50) NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    from_address VARCHAR(42) NOT NULL,
+    to_address VARCHAR(42) NOT NULL,
+    value DECIMAL(36, 18) NOT NULL,
+    gas_used DECIMAL(36, 18),
+    gas_price DECIMAL(36, 18),
+    block_number INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    confirmed_at TIMESTAMP
+);
+
+CREATE INDEX idx_transactions_user_id ON transactions(user_id);
+CREATE INDEX idx_transactions_wallet_id ON transactions(wallet_id);
+CREATE INDEX idx_transactions_hash ON transactions(transaction_hash);
+CREATE INDEX idx_transactions_created_at ON transactions(created_at);
+
+-- Reputation table
+CREATE TABLE reputation (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    points INTEGER DEFAULT 0,
+    level INTEGER DEFAULT 1,
+    badges JSONB DEFAULT '[]',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_reputation_user_id ON reputation(user_id);
+CREATE INDEX idx_reputation_points ON reputation(points DESC);
+
+-- Reputation history table
+CREATE TABLE reputation_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    points INTEGER NOT NULL,
+    action VARCHAR(50) NOT NULL,
+    description TEXT,
+    metadata JSONB,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_reputation_history_user_id ON reputation_history(user_id);
+CREATE INDEX idx_reputation_history_timestamp ON reputation_history(timestamp);
+
+-- Achievements table
+CREATE TABLE achievements (
+    id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    description TEXT NOT NULL,
+    icon VARCHAR(10) NOT NULL,
+    category VARCHAR(20) NOT NULL,
+    points INTEGER NOT NULL,
+    requirement JSONB NOT NULL,
+    rarity VARCHAR(20) NOT NULL
+);
+
+-- User achievements table
+CREATE TABLE user_achievements (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    achievement_id VARCHAR(50) NOT NULL REFERENCES achievements(id),
+    progress INTEGER DEFAULT 0,
+    completed BOOLEAN DEFAULT FALSE,
+    unlocked_at TIMESTAMP,
+    PRIMARY KEY (user_id, achievement_id)
+);
+
+CREATE INDEX idx_user_achievements_user_id ON user_achievements(user_id);
+CREATE INDEX idx_user_achievements_completed ON user_achievements(completed);
+
+-- Notifications table
+CREATE TABLE notifications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type notification_type NOT NULL,
+    title VARCHAR(200) NOT NULL,
+    content TEXT,
+    data JSONB,
+    read BOOLEAN DEFAULT FALSE,
+    read_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_notifications_user_id ON notifications(user_id);
+CREATE INDEX idx_notifications_read ON notifications(read);
+CREATE INDEX idx_notifications_created_at ON notifications(created_at);
+
+-- Analytics events table (partitioned by month)
+CREATE TABLE analytics_events (
+    id UUID DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id),
+    session_id UUID NOT NULL,
+    event_type VARCHAR(100) NOT NULL,
+    event_data JSONB,
+    ip INET,
+    user_agent TEXT,
+    referer TEXT,
+    location GEOGRAPHY(Point, 4326),
+    country VARCHAR(2),
+    city VARCHAR(100),
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id, timestamp)
+) PARTITION BY RANGE (timestamp);
+
+-- Create partitions for analytics events
+CREATE TABLE analytics_events_2024_07 PARTITION OF analytics_events
+    FOR VALUES FROM ('2024-07-01') TO ('2024-08-01');
+
+CREATE TABLE analytics_events_2024_08 PARTITION OF analytics_events
+    FOR VALUES FROM ('2024-08-01') TO ('2024-09-01');
+
+-- Add more partitions as needed
+
+CREATE INDEX idx_analytics_events_user_id ON analytics_events(user_id, timestamp);
+CREATE INDEX idx_analytics_events_type ON analytics_events(event_type, timestamp);
+CREATE INDEX idx_analytics_events_session ON analytics_events(session_id);
+
+-- Virtual spaces table
+CREATE TABLE virtual_spaces (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    owner_id UUID NOT NULL REFERENCES users(id),
+    model_url TEXT NOT NULL,
+    thumbnail_url TEXT,
+    capacity INTEGER DEFAULT 50,
+    is_public BOOLEAN DEFAULT TRUE,
+    settings JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_virtual_spaces_owner_id ON virtual_spaces(owner_id);
+CREATE INDEX idx_virtual_spaces_is_public ON virtual_spaces(is_public);
+
+-- Reports table for moderation
+CREATE TABLE reports (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    reporter_id UUID NOT NULL REFERENCES users(id),
+    content_type VARCHAR(20) NOT NULL,
+    content_id UUID NOT NULL,
+    reason VARCHAR(50) NOT NULL,
+    details TEXT,
+    status VARCHAR(20) DEFAULT 'PENDING',
+    resolved_by UUID REFERENCES users(id),
+    resolved_at TIMESTAMP,
+    resolution_notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_reports_status ON reports(status);
+CREATE INDEX idx_reports_content ON reports(content_type, content_id);
+CREATE INDEX idx_reports_created_at ON reports(created_at);
+
+-- Create update timestamp trigger
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Apply trigger to tables with updated_at
+CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_ai_companions_updated_at BEFORE UPDATE ON ai_companions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_posts_updated_at BEFORE UPDATE ON posts
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_wallets_updated_at BEFORE UPDATE ON wallets
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_nfts_updated_at BEFORE UPDATE ON nfts
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_reputation_updated_at BEFORE UPDATE ON reputation
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_virtual_spaces_updated_at BEFORE UPDATE ON virtual_spaces
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Create function for full-text search
+CREATE OR REPLACE FUNCTION search_posts(search_query TEXT)
+RETURNS TABLE (
+    id UUID,
+    title VARCHAR(300),
+    excerpt TEXT,
+    author_id UUID,
+    rank REAL
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        p.id,
+        p.title,
+        p.excerpt,
+        p.author_id,
+        ts_rank(
+            to_tsvector('english', p.title || ' ' || COALESCE(p.excerpt, '')),
+            plainto_tsquery('english', search_query)
+        ) AS rank
+    FROM posts p
+    WHERE 
+        p.status = 'PUBLISHED' AND
+        p.deleted_at IS NULL AND
+        to_tsvector('english', p.title || ' ' || COALESCE(p.excerpt, '')) @@ 
+        plainto_tsquery('english', search_query)
+    ORDER BY rank DESC
+    LIMIT 100;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create materialized view for trending content
+CREATE MATERIALIZED VIEW trending_posts AS
+SELECT 
+    p.id,
+    p.title,
+    p.slug,
+    p.author_id,
+    p.created_at,
+    p.view_count,
+    COUNT(DISTINCT r.id) as reaction_count,
+    COUNT(DISTINCT c.id) as comment_count,
+    (p.view_count * 0.3 + 
+     COUNT(DISTINCT r.id) * 0.5 + 
+     COUNT(DISTINCT c.id) * 0.2) as trending_score
+FROM posts p
+LEFT JOIN reactions r ON r.post_id = p.id
+LEFT JOIN comments c ON c.post_id = p.id
+WHERE 
+    p.status = 'PUBLISHED' AND
+    p.published_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'
+GROUP BY p.id
+ORDER BY trending_score DESC
+LIMIT 100;
+
+CREATE INDEX idx_trending_posts_score ON trending_posts(trending_score DESC);
+
+-- Refresh trending posts every hour
+CREATE OR REPLACE FUNCTION refresh_trending_posts()
+RETURNS void AS $$
+BEGIN
+    REFRESH MATERIALIZED VIEW CONCURRENTLY trending_posts;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Grant permissions (adjust based on your user setup)
+GRANT USAGE ON SCHEMA public TO sparkle_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO sparkle_app;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO sparkle_app;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO sparkle_app;
+```
+
+---
+
+## 🎯 Conclusion
+
+This comprehensive execution plan provides a clear, step-by-step guide for building the Sparkle Universe platform. Each phase builds upon the previous one, ensuring a solid foundation while progressively adding advanced features.
+
+### Key Success Factors:
+1. **Follow the phases in order** - Each phase depends on the previous ones
+2. **Complete the checklists** - They ensure nothing is missed
+3. **Test as you build** - Write tests alongside implementation
+4. **Document thoroughly** - Future developers will thank you
+5. **Review the interfaces** - Ensure components integrate properly
+
+### Next Steps:
+1. Set up your development environment
+2. Start with Phase 1: Foundation & Infrastructure
+3. Complete each file's checklist before moving on
+4. Test integrations between components
+5. Deploy incrementally as features are completed
+
+Remember: This is a living document. As you build, you may discover optimizations or better approaches. Document these improvements and update the plan accordingly.
+
+**Happy coding, and welcome to the future of digital communities! 🚀**
