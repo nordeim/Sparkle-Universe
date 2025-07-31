@@ -1,0 +1,250 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": [
+    "**/.env.*local",
+    ".env",
+    "tsconfig.json"
+  ],
+  "globalEnv": [
+    "NODE_ENV",
+    "VERCEL_ENV",
+    "VERCEL_URL",
+    "PORT",
+    "DATABASE_URL",
+    "REDIS_URL"
+  ],
+  "pipeline": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "src/**",
+        "package.json",
+        "tsconfig.json",
+        "tailwind.config.*",
+        "postcss.config.*",
+        "next.config.*",
+        "vite.config.*"
+      ],
+      "outputs": [
+        "dist/**",
+        ".next/**",
+        "build/**",
+        "out/**"
+      ],
+      "env": [
+        "NODE_ENV",
+        "NEXT_PUBLIC_*"
+      ],
+      "cache": true
+    },
+    "dev": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "persistent": true,
+      "env": [
+        "NODE_ENV",
+        "PORT",
+        "DATABASE_URL",
+        "REDIS_URL",
+        "NEXT_PUBLIC_*"
+      ]
+    },
+    "start": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {
+      "inputs": [
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx",
+        "**/*.json",
+        ".eslintrc.*",
+        "eslint.config.*"
+      ],
+      "outputs": [],
+      "cache": true
+    },
+    "lint:fix": {
+      "inputs": [
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx",
+        "**/*.json",
+        ".eslintrc.*"
+      ],
+      "outputs": [
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx"
+      ],
+      "cache": false
+    },
+    "test": {
+      "dependsOn": ["build"],
+      "inputs": [
+        "src/**",
+        "tests/**",
+        "__tests__/**",
+        "**/*.test.*",
+        "**/*.spec.*",
+        "jest.config.*",
+        "vitest.config.*"
+      ],
+      "outputs": [
+        "coverage/**"
+      ],
+      "env": [
+        "NODE_ENV",
+        "CI"
+      ],
+      "cache": true
+    },
+    "test:unit": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "src/**",
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.spec.ts",
+        "**/*.spec.tsx"
+      ],
+      "outputs": [
+        "coverage/**"
+      ],
+      "cache": true
+    },
+    "test:integration": {
+      "dependsOn": ["build"],
+      "inputs": [
+        "src/**",
+        "tests/integration/**",
+        "**/*.integration.test.*"
+      ],
+      "outputs": [],
+      "env": [
+        "DATABASE_URL",
+        "REDIS_URL"
+      ],
+      "cache": false
+    },
+    "test:e2e": {
+      "dependsOn": ["build"],
+      "inputs": [
+        "e2e/**",
+        "tests/e2e/**",
+        "playwright.config.*"
+      ],
+      "outputs": [
+        "playwright-report/**",
+        "test-results/**"
+      ],
+      "cache": false
+    },
+    "test:coverage": {
+      "dependsOn": ["test"],
+      "outputs": [
+        "coverage/**",
+        "coverage-final.json"
+      ],
+      "cache": true
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "**/*.ts",
+        "**/*.tsx",
+        "**/tsconfig.json"
+      ],
+      "outputs": [
+        "**/*.tsbuildinfo"
+      ],
+      "cache": true
+    },
+    "db:generate": {
+      "inputs": [
+        "**/prisma/schema.prisma"
+      ],
+      "outputs": [
+        "node_modules/.prisma/**",
+        "node_modules/@prisma/client/**"
+      ],
+      "cache": false
+    },
+    "db:push": {
+      "dependsOn": ["db:generate"],
+      "cache": false,
+      "env": [
+        "DATABASE_URL"
+      ]
+    },
+    "db:migrate": {
+      "inputs": [
+        "**/prisma/schema.prisma",
+        "**/prisma/migrations/**"
+      ],
+      "cache": false,
+      "env": [
+        "DATABASE_URL"
+      ]
+    },
+    "db:migrate:dev": {
+      "dependsOn": ["db:generate"],
+      "cache": false,
+      "env": [
+        "DATABASE_URL"
+      ]
+    },
+    "db:migrate:deploy": {
+      "dependsOn": ["db:generate"],
+      "cache": false,
+      "env": [
+        "DATABASE_URL"
+      ]
+    },
+    "db:seed": {
+      "dependsOn": ["db:generate"],
+      "cache": false,
+      "env": [
+        "DATABASE_URL"
+      ]
+    },
+    "db:studio": {
+      "dependsOn": ["db:generate"],
+      "cache": false,
+      "persistent": true,
+      "env": [
+        "DATABASE_URL"
+      ]
+    },
+    "deploy": {
+      "dependsOn": ["build", "test"],
+      "outputs": [],
+      "cache": false,
+      "env": [
+        "VERCEL_TOKEN",
+        "VERCEL_ORG_ID",
+        "VERCEL_PROJECT_ID"
+      ]
+    },
+    "deploy:preview": {
+      "dependsOn": ["build"],
+      "outputs": [],
+      "cache": false
+    },
+    "analyze": {
+      "dependsOn": ["build"],
+      "outputs": [
+        ".next/analyze/**"
+      ],
+      "cache": true
+    },
+    "clean": {
+      "cache": false
+    }
+  }
+}
